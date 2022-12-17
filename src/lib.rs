@@ -22,16 +22,18 @@ pub unsafe fn encode_mul_compress(src: &[u8], mut dst: *mut u8) {
     let mul_const = _mm512_set1_epi32(0b100000100000100000100000);
 
     let mut i = 0;
-    while i + 64 <= len {
-        let chunk = _mm512_loadu_si512(ptr.add(i).cast());
-        let and = _mm512_and_si512(chunk, and_mask);
-        let mul = _mm512_mullo_epi32(and, mul_const);
+    while i + 256 <= len {
+        for _ in 0..4 {
+            let chunk = _mm512_loadu_si512(ptr.add(i).cast());
+            let and = _mm512_and_si512(chunk, and_mask);
+            let mul = _mm512_mullo_epi32(and, mul_const);
 
-        let compress = _mm512_maskz_compress_epi8(COMPRESS_MASK, mul);
-        _mm_storeu_si128(dst.cast(), _mm512_castsi512_si128(compress));
+            let compress = _mm512_maskz_compress_epi8(COMPRESS_MASK, mul);
+            _mm_storeu_si128(dst.cast(), _mm512_castsi512_si128(compress));
 
-        dst = dst.add(16);
-        i += 64;
+            dst = dst.add(16);
+            i += 64;
+        }
     }
 
     encode_rest(src, i, dst);
@@ -45,25 +47,83 @@ pub unsafe fn encode_bitshuffle(src: &[u8], mut dst: *mut u8) {
     let ctrl2 = _mm512_set1_epi64(i64::from_le_bytes([33, 34, 41, 42, 49, 50, 57, 58]));
 
     let mut i = 0;
-    while i + 64 <= len {
-        let chunk = _mm512_loadu_si512(ptr.add(i).cast());
-        let gather_lo = _mm512_bitshuffle_epi64_mask(chunk, ctrl1);
-        let gather_hi = _mm512_bitshuffle_epi64_mask(chunk, ctrl2);
+    while i + 256 <= len {
+        for _ in 0..4 {
+            let chunk = _mm512_loadu_si512(ptr.add(i).cast());
+            let gather_lo = _mm512_bitshuffle_epi64_mask(chunk, ctrl1);
+            let gather_hi = _mm512_bitshuffle_epi64_mask(chunk, ctrl2);
 
-        let unpack = _mm_unpacklo_epi8(
-            _mm_cvtsi64_si128(gather_lo as i64),
-            _mm_cvtsi64_si128(gather_hi as i64),
-        );
-        _mm_storeu_si128(dst.cast(), unpack);
+            let unpack = _mm_unpacklo_epi8(
+                _mm_cvtsi64_si128(gather_lo as i64),
+                _mm_cvtsi64_si128(gather_hi as i64),
+            );
+            _mm_storeu_si128(dst.cast(), unpack);
 
-        dst = dst.add(16);
-        i += 64;
+            dst = dst.add(16);
+            i += 64;
+        }
     }
 
     encode_rest(src, i, dst);
 }
 
-pub unsafe fn encode_pext(src: &[u8], mut dst: *mut u8) {
+// Original: Daniel Liu, aqrit
+pub unsafe fn encode_movepi8_mask(src: &[u8], mut dst: *mut u8) {
+    let len = src.len();
+    let ptr = src.as_ptr();
+
+    let idx = _mm512_set_epi64(7, 3, 6, 2, 5, 1, 4, 0);
+
+    let mut i = 0;
+    while i + 256 <= len {
+        for _ in 0..4 {
+            let v = _mm512_loadu_si512(ptr.add(i).cast());
+            let v = _mm512_permutexvar_epi64(idx, v);
+            let lo = _mm512_slli_epi64(v, 6);
+            let hi = _mm512_slli_epi64(v, 5);
+            let a = _mm512_unpackhi_epi8(lo, hi);
+            let b = _mm512_unpacklo_epi8(lo, hi);
+
+            _store_mask64(dst.cast(), _mm512_movepi8_mask(b));
+            _store_mask64(dst.add(8).cast(), _mm512_movepi8_mask(a));
+
+            dst = dst.add(16);
+            i += 64;
+        }
+    }
+
+    encode_rest(src, i, dst);
+}
+
+// Source: Daniel Liu, aqrit
+pub unsafe fn encode_avx2_movemask(src: &[u8], mut dst: *mut u8) {
+    let len = src.len();
+    let ptr = src.as_ptr();
+
+    let mut i = 0;
+    while i + 128 <= len {
+        for _ in 0..4 {
+            let v = _mm256_loadu_si256(ptr.add(i).cast());
+            let v = _mm256_permute4x64_epi64(v, 0b11011000);
+            let lo = _mm256_slli_epi64(v, 6);
+            let hi = _mm256_slli_epi64(v, 5);
+            let a = _mm256_unpackhi_epi8(lo, hi);
+            let b = _mm256_unpacklo_epi8(lo, hi);
+
+            dst.cast::<i32>().write_unaligned(_mm256_movemask_epi8(b));
+            dst.add(4)
+                .cast::<i32>()
+                .write_unaligned(_mm256_movemask_epi8(a));
+
+            dst = dst.add(8);
+            i += 32;
+        }
+    }
+
+    encode_rest(src, i, dst);
+}
+
+pub unsafe fn encode_bmi2_pext(src: &[u8], mut dst: *mut u8) {
     let len = src.len();
     let ptr = src.as_ptr();
 

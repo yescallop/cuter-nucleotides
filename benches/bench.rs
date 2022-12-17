@@ -19,7 +19,13 @@ fn bench_encode(c: &mut Criterion) {
     group.bench_function("bitshuffle", |b| {
         b.iter(|| unsafe { encode_bitshuffle(&src, dst.as_mut_ptr()) })
     });
-    group.bench_function("pext", |b| {
-        b.iter(|| unsafe { encode_pext(&src, dst.as_mut_ptr()) })
+    group.bench_function("movepi8_mask", |b| {
+        b.iter(|| unsafe { encode_movepi8_mask(&src, dst.as_mut_ptr()) })
+    });
+    group.bench_function("avx2_movemask", |b| {
+        b.iter(|| unsafe { encode_avx2_movemask(&src, dst.as_mut_ptr()) })
+    });
+    group.bench_function("bmi2_pext", |b| {
+        b.iter(|| unsafe { encode_bmi2_pext(&src, dst.as_mut_ptr()) })
     });
 }

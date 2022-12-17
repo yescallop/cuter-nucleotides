@@ -18,7 +18,9 @@ fn test_encode() -> io::Result<()> {
 
     test(encode_bitshuffle);
     test(encode_mul_compress);
-    test(encode_pext);
+    test(encode_movepi8_mask);
+    test(encode_avx2_movemask);
+    test(encode_bmi2_pext);
 
     Ok(())
 }
