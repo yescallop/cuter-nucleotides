@@ -1,0 +1,18 @@
+[package]
+name = "cuter-nucleotides"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rand = "0.8"
+
+[dependencies.bytemuck]
+git = "https://github.com/yescallop/bytemuck"
+features = ["nightly_stdsimd"]
+
+[dev-dependencies]
+criterion = "0.4"
+
+[[bench]]
+name = "bench"
+harness = false
