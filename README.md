@@ -4,8 +4,8 @@ Cuter tricks for binary encoding of nucleotides, powered by Intel AVX-512. Inspi
 
 ## Benchmark results
 
-| String to binary | Throughput       |
-|------------------|------------------|
-| mul_compress     | **73.327 GiB/s** |
-| bitshuffle       | 49.767 GiB/s     |
-| pext             | 29.411 GiB/s     |
+| Encoding     | Throughput       |
+|--------------|------------------|
+| mul_compress | **73.327 GiB/s** |
+| bitshuffle   | 49.767 GiB/s     |
+| pext         | 29.411 GiB/s     |
