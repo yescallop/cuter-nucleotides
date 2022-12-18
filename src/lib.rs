@@ -43,21 +43,20 @@ pub unsafe fn encode_bitshuffle(src: &[u8], mut dst: *mut u8) {
     let len = src.len();
     let ptr = src.as_ptr();
 
-    let ctrl1 = _mm512_set1_epi64(i64::from_le_bytes([1, 2, 9, 10, 17, 18, 25, 26]));
-    let ctrl2 = _mm512_set1_epi64(i64::from_le_bytes([33, 34, 41, 42, 49, 50, 57, 58]));
+    let idx = _mm512_setr_epi32(0, 8, 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 15);
+    let ctrl_lo = _mm512_set1_epi64(i64::from_le_bytes([1, 2, 9, 10, 17, 18, 25, 26]));
+    let ctrl_hi = _mm512_set1_epi64(i64::from_le_bytes([33, 34, 41, 42, 49, 50, 57, 58]));
 
     let mut i = 0;
     while i + 256 <= len {
         for _ in 0..4 {
             let chunk = _mm512_loadu_si512(ptr.add(i).cast());
-            let gather_lo = _mm512_bitshuffle_epi64_mask(chunk, ctrl1);
-            let gather_hi = _mm512_bitshuffle_epi64_mask(chunk, ctrl2);
+            let perm = _mm512_permutexvar_epi32(idx, chunk);
+            let lo = _mm512_bitshuffle_epi64_mask(perm, ctrl_lo);
+            let hi = _mm512_bitshuffle_epi64_mask(perm, ctrl_hi);
 
-            let unpack = _mm_unpacklo_epi8(
-                _mm_cvtsi64_si128(gather_lo as i64),
-                _mm_cvtsi64_si128(gather_hi as i64),
-            );
-            _mm_storeu_si128(dst.cast(), unpack);
+            _store_mask64(dst.cast(), lo);
+            _store_mask64(dst.add(8).cast(), hi);
 
             dst = dst.add(16);
             i += 64;
@@ -72,7 +71,7 @@ pub unsafe fn encode_movepi8_mask(src: &[u8], mut dst: *mut u8) {
     let len = src.len();
     let ptr = src.as_ptr();
 
-    let idx = _mm512_set_epi64(7, 3, 6, 2, 5, 1, 4, 0);
+    let idx = _mm512_setr_epi64(0, 4, 1, 5, 2, 6, 3, 7);
 
     let mut i = 0;
     while i + 256 <= len {

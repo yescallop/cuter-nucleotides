@@ -9,7 +9,7 @@ All benchmarks were ran on an Intel Core i5-11300H (Tiger Lake H) processor.
 | Encoding function | Throughput       |
 |-------------------|------------------|
 | mul_compress      | **90.464 GiB/s** |
+| bitshuffle        | 79.889 GiB/s     |
 | movepi8_mask      | 59.218 GiB/s     |
-| bitshuffle        | 50.432 GiB/s     |
 | *avx2_movemask*   | 42.695 GiB/s     |
 | *bmi2_pext*       | 29.502 GiB/s     |
