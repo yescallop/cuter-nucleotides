@@ -7,7 +7,8 @@ edition = "2021"
 rand = "0.8"
 
 [dependencies.bytemuck]
-git = "https://github.com/yescallop/bytemuck"
+git = "https://github.com/Lokathor/bytemuck"
+rev = "2c8ce95548d2096f2092fedc05c4fc5af6824162"
 features = ["nightly_stdsimd"]
 
 [dev-dependencies]

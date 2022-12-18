@@ -155,9 +155,134 @@ unsafe fn encode_rest(src: &[u8], mut i: usize, mut dst: *mut u8) {
     // We use a PKCS#7-like padding, where the last byte is padded with
     // 2-bit integers indicating the number of nucleotides in the byte.
     let mut last = 0b01010101 * (len - i) as u8;
-    while i < len {
-        last = (last << 2) | ((src[i] >> 1) & 3);
-        i += 1;
+    for j in (i..len).rev() {
+        last = (last << 2) | ((*ptr.add(j) >> 1) & 3);
     }
     *dst = last;
+}
+
+pub unsafe fn decode_multishift(src: &[u8], mut dst: *mut u8) -> usize {
+    let len = src.len();
+    let ptr = src.as_ptr();
+
+    let ctrl = _mm512_set1_epi64(i64::from_le_bytes([0, 2, 4, 6, 8, 10, 12, 14]));
+    let mask = _mm512_set1_epi8(0b11);
+    let lut = _mm512_set1_epi32(i32::from_le_bytes(*b"ACTG"));
+
+    let mut i = 0;
+    while i + 16 <= len {
+        let chunk = _mm_loadu_si128(ptr.add(i).cast());
+        let zext = _mm512_cvtepu16_epi64(chunk);
+        let multishift = _mm512_multishift_epi64_epi8(ctrl, zext);
+        let and = _mm512_and_si512(multishift, mask);
+
+        let res = _mm512_shuffle_epi8(lut, and);
+        _mm512_storeu_si512(dst.cast(), res);
+
+        dst = dst.add(64);
+        i += 16;
+    }
+
+    decode_rest(src, i, dst)
+}
+
+pub unsafe fn decode_shift_shuffle(src: &[u8], mut dst: *mut u8) -> usize {
+    let len = src.len();
+    let ptr = src.as_ptr();
+
+    let ctrl = _mm512_broadcast_i32x4(_mm_setr_epi32(0, 0x04040404, 0x08080808, 0x0c0c0c0c));
+    let count = _mm512_set1_epi32(0x0004_0000);
+    let mask = _mm512_set1_epi16(0b00001100_00000011);
+    let lut = _mm512_broadcast_i32x4(_mm_setr_epi32(
+        i32::from_le_bytes(*b"ACTG"),
+        b'C' as i32,
+        b'T' as i32,
+        b'G' as i32,
+    ));
+
+    let mut i = 0;
+    while i + 16 <= len {
+        let chunk = _mm_loadu_si128(ptr.add(i).cast());
+        let zext = _mm512_cvtepu8_epi32(chunk);
+        let shuf = _mm512_shuffle_epi8(zext, ctrl);
+        let srl = _mm512_srlv_epi16(shuf, count);
+        let and = _mm512_and_si512(srl, mask);
+
+        let res = _mm512_shuffle_epi8(lut, and);
+        _mm512_storeu_si512(dst.cast(), res);
+
+        dst = dst.add(64);
+        i += 16;
+    }
+
+    decode_rest(src, i, dst)
+}
+
+pub unsafe fn decode_pdep_shuffle(src: &[u8], mut dst: *mut u8) -> usize {
+    let len = src.len();
+    let ptr = src.as_ptr();
+
+    let lut = _mm512_set1_epi32(i32::from_le_bytes(*b"ACTG"));
+    let scatter_mask = 0x0303030303030303u64;
+
+    let read_u16 = |i| ptr.add(i).cast::<u16>().read_unaligned() as u64;
+
+    let mut i = 0;
+    while i + 16 <= len {
+        let a = _pdep_u64(read_u16(i), scatter_mask) as i64;
+        let b = _pdep_u64(read_u16(i + 2), scatter_mask) as i64;
+        let c = _pdep_u64(read_u16(i + 4), scatter_mask) as i64;
+        let d = _pdep_u64(read_u16(i + 6), scatter_mask) as i64;
+        let e = _pdep_u64(read_u16(i + 8), scatter_mask) as i64;
+        let f = _pdep_u64(read_u16(i + 10), scatter_mask) as i64;
+        let g = _pdep_u64(read_u16(i + 12), scatter_mask) as i64;
+        let h = _pdep_u64(read_u16(i + 14), scatter_mask) as i64;
+        let chunk = _mm512_setr_epi64(a, b, c, d, e, f, g, h);
+
+        let res = _mm512_shuffle_epi8(lut, chunk);
+        _mm512_storeu_si512(dst.cast(), res);
+
+        dst = dst.add(64);
+        i += 16;
+    }
+
+    decode_rest(src, i, dst)
+}
+
+pub unsafe fn decode_naive_lut(src: &[u8], dst: *mut u8) -> usize {
+    decode_rest(src, 0, dst)
+}
+
+const DECODE_LUT: &[u32; 256] = &{
+    let mut out = [0; 256];
+    let mut v = [0; 4];
+    let mut i = 0;
+    while i < 256 {
+        let mut x = i;
+        let mut j = 0;
+        while j < 4 {
+            v[j] = b"ACTG"[x & 3];
+            x >>= 2;
+            j += 1;
+        }
+        out[i] = u32::from_le_bytes(v);
+        i += 1;
+    }
+    out
+};
+
+unsafe fn decode_rest(src: &[u8], mut i: usize, mut dst: *mut u8) -> usize {
+    while i < src.len() {
+        let x = src[i];
+
+        dst.cast::<u32>().write_unaligned(DECODE_LUT[x as usize]);
+        dst = dst.add(4);
+        i += 1;
+    }
+
+    if i == 0 {
+        0
+    } else {
+        (i - 1) * 4 + (src[i - 1] >> 6) as usize
+    }
 }
